@@ -6,6 +6,12 @@ This file records significant dsh-qqbot updates from a product perspective, focu
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.2] - 2026-10-28
+
+### Fixed
+
+- **The host-side card stayed after QQ answered first**: notification questions/approvals are pushed to both QQ and the host UI, and when QQ answered first the Web/desktop question card and approval prompt stayed on screen. Ported the original dsh-qqbot plugin's `cancelWeb` behaviour: match the host `typertGateway` pending-delivery table for `user-questions/request` / `approval/request` and call `cancelRemoteEvent` so the client removes the card; retries on a fixed schedule when the host pending registers late (0/100/300/600/1000/1500/2500/4000/6000/9000ms) and silently degrades when the private API is unavailable. Added `src/notification/client-cancel.ts` with 6 tests (including a channel integration case).
+
 ## [0.6.1] - 2026-10-28
 
 ### Fixed

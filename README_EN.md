@@ -203,7 +203,7 @@ With `learnFromChats` enabled, the first private message from a user becomes the
 
 Questions and approvals **race the host answerer** (Web card / CLI prompt): first answer wins. When the host has no provider, the request does not fail — it keeps waiting for QQ.
 At most one pending question / approval per session; they are cancelled when the session is evicted or the plugin unloads.
-When QQ answers first, an already-shown Web question card / approval prompt is not retracted (clicking it later has no effect).
+When QQ answers first, the already-shown Web/desktop question card and approval prompt are cancelled through the host `typertGateway` pending-delivery table (same behaviour as the original dsh-qqbot plugin's cancelWeb; retries when the host pending registers late, silently degrades when the private API is unavailable — the card stays but the answer still wins).
 Questions/approvals inside QQ chats still use the original button channels — the bridge only handles non-QQ sessions.
 
 ### Notification service

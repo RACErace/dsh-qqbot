@@ -6,6 +6,12 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.6.2] - 2026-10-28
+
+### 问题修复
+
+- **QQ 先答后宿主侧卡片不收回**：通知提问/审批会同时推给 QQ 与宿主 UI，QQ 先作答时 Web/桌面上的问题卡片与审批提示会一直挂着。现补上与本地 dsh-qqbot 插件一致的取消逻辑（`cancelWeb`）：通过宿主 `typertGateway` 的待投递事件表匹配 `user-questions/request` / `approval/request`，调用 `cancelRemoteEvent` 让客户端移除卡片；宿主 pending 登记较晚时按固定节奏重试（0/100/300/600/1000/1500/2500/4000/6000/9000ms），私有 API 不可用时静默降级。新增 `src/notification/client-cancel.ts` 及 6 个测试（含通道集成用例）。
+
 ## [0.6.1] - 2026-10-28
 
 ### 问题修复

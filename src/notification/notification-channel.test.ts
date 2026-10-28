@@ -8,7 +8,7 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { InlineKeyboard } from '@tencent-connect/qqbot-nodejs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { NotificationChannel } from './notification-channel.ts';
 import { NotificationTargetStore } from './target-store.ts';
 import type {
@@ -319,8 +319,7 @@ describe('提问推送与 QQ 作答', () => {
     await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['乙'] }] });
   });
 
-  it('userQuestions 晚挂载时通过 internal/service 补装回答者', async () => {
-    const { sender, channel, ctx } = makeChannel();
+  it('userQuestions 晚挂载时通过 internal/service 补装回答者', async () => {    const { sender, channel, ctx } = makeChannel();
     const uq: UserQuestionsLike = { ask: () => new Promise<NotificationAskResult>(() => undefined) };
     ctx.setService('userQuestions', uq);
     ctx.emit('internal/service', 'userQuestions', uq);
@@ -333,6 +332,31 @@ describe('提问推送与 QQ 作答', () => {
     expect(sender.sends[0]?.content).toContain('❓ DSH 需要你回答');
     expect(channel.tryAnswer('c2c', 'owner', '1')).toBe(true);
     await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['甲'] }] });
+  });
+
+  it('QQ 先答时取消宿主侧已弹出的问题卡片（typertGateway）', async () => {
+    const uq: UserQuestionsLike = { ask: () => new Promise<NotificationAskResult>(() => undefined) };
+    const pendingRemoteEvents = new Map<string, { source?: { event?: unknown; request?: unknown } }>();
+    const cancelRemoteEvent = vi.fn();
+    const { channel } = makeChannel({
+      services: {
+        userQuestions: uq,
+        typertGateway: { pendingRemoteEvents, cancelRemoteEvent },
+      },
+    });
+
+    const request = {
+      agent: { id: 'web-cancel' },
+      questions: [{ id: 'q1', question: '选一个', options: [{ label: '甲' }, { label: '乙' }] }],
+    };
+    const pending = uq.ask(request);
+    await settle();
+    pendingRemoteEvents.set('e1', { source: { event: 'user-questions/request', request } });
+
+    expect(channel.tryAnswer('c2c', 'owner', '1')).toBe(true);
+    await expect(pending).resolves.toEqual({ answers: [{ id: 'q1', selected: ['甲'] }] });
+    expect(cancelRemoteEvent).toHaveBeenCalledTimes(1);
+    expect(pendingRemoteEvents.get('e1')).toBe(cancelRemoteEvent.mock.calls[0]?.[0]);
   });
 });
 

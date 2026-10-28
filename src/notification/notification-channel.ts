@@ -35,6 +35,7 @@ import {
   parseNotificationAnswer,
 } from './format.ts';
 import type { NotificationTargetStore } from './target-store.ts';
+import { cancelPendingClientEvent } from './client-cancel.ts';
 import type {
   ApprovalOutcome,
   NotificationAnswer,
@@ -122,6 +123,10 @@ export class NotificationChannel {
 
   private installedUq?: UserQuestionsLike;
   private previousAsk?: (request: NotificationAskRequest) => Promise<NotificationAskResult>;
+  /** 装配时的宿主 ctx（取消客户端卡片需要访问 typertGateway） */
+  private ctx?: NotificationContextLike;
+  /** 取消客户端卡片的重试定时器（dispose 时清理） */
+  private readonly clientCancelTimers = new Set<ReturnType<typeof setTimeout>>();
   private lastDonePushAt = 0;
   private active = false;
   private disposed = false;
@@ -159,6 +164,7 @@ export class NotificationChannel {
    */
   public install(ctx: NotificationContextLike): void {
     if (this.disposed) return;
+    this.ctx = ctx;
     if (!this.notifications.enabled) {
       this.logger.info('im-qqbot: notification bridge disabled by config');
       return;
@@ -178,11 +184,30 @@ export class NotificationChannel {
     this.disposed = true;
     this.active = false;
     this.cancelAll();
+    for (const timer of this.clientCancelTimers) clearTimeout(timer);
+    this.clientCancelTimers.clear();
+    this.ctx = undefined;
     if (this.installedUq && this.previousAsk) {
       this.installedUq.ask = this.previousAsk;
     }
     this.installedUq = undefined;
     this.previousAsk = undefined;
+  }
+
+  /**
+   * QQ 先答时取消宿主侧（Web / 桌面）已弹出的卡片或审批提示。
+   * 与本地 dsh-qqbot 插件的 cancelWeb 行为一致；私有 API 不可用时静默降级。
+   */
+  private cancelClientCard(eventName: string, request: unknown): void {
+    if (!this.ctx) return;
+    try {
+      cancelPendingClientEvent(this.ctx, eventName, request, {
+        timers: this.clientCancelTimers,
+        label: eventName === 'approval/request' ? 'approval' : 'question',
+      });
+    } catch {
+      // 取消失败不影响已完成的作答
+    }
   }
 
   private installQuestionWrapper(ctx: NotificationContextLike): void {
@@ -273,6 +298,8 @@ export class NotificationChannel {
         return true;
       }
       this.finishApproval(approvalEntry);
+      // QQ 先决策 → 取消宿主侧已弹出的审批提示
+      this.cancelClientCard('approval/request', approvalEntry.request);
       approvalEntry.resolve(decision === 'allow' ? 'allowed-once' : 'rejected');
       return true;
     }
@@ -306,6 +333,8 @@ export class NotificationChannel {
     const approvalEntry = this.findPendingApproval(scope, targetId);
     if (!approvalEntry) return false;
     this.finishApproval(approvalEntry);
+    // QQ 先决策 → 取消宿主侧已弹出的审批提示
+    this.cancelClientCard('approval/request', approvalEntry.request);
     approvalEntry.resolve(button.d === 'allow' ? 'allowed-once' : 'rejected');
     return true;
   }
@@ -559,6 +588,8 @@ export class NotificationChannel {
     }
 
     this.finishQuestion(entry);
+    // QQ 先答 → 取消宿主侧已弹出的问题卡片（与本地插件 cancelWeb 行为一致）
+    this.cancelClientCard('user-questions/request', entry.request);
     entry.resolve({ answers: entry.answers });
     const picked = answer.selected.length > 0 ? answer.selected.join('、') : (answer.custom ?? '');
     this.pushInBackground(entry.target, `✅ 已收到回答：${picked}`);
