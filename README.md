@@ -24,6 +24,8 @@
 
 </div>
 
+> **本仓库是 fork**：基于上游 [tencent-connect/dsh-qqbot](https://github.com/tencent-connect/dsh-qqbot)（npm `@tencent-connect/dsh-qqbot`），在原插件之上新增 **QQ 通知推送**（非 QQ 会话的任务完成 / 提问 / 审批 → QQ，并提供对外 notify 服务）。其余功能与上游一致；同步上游用 `git fetch upstream && git merge upstream/main`。
+
 ## 架构
 
 ```
@@ -31,6 +33,8 @@ QQ 用户 → QQ WebSocket → dsh-qqbot → ctx.agents → dsh agent loop → L
                                  ↑                           │
                                  └── session/event ──────────┘
                                        (assistant reply → QQ sendMarkdown)
+
+桌面 / CLI / Web 会话 ── turn/end · ask_user_question · approval/request ──→ 通知桥 → QQ
 ```
 
 ## 安装
@@ -147,6 +151,24 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 | `sendFile.restrictPaths` | boolean | `true` | 是否启用路径白名单（仅 media + cwd + extraRoots） |
 | `sendFile.extraRoots` | string[] | `[]` | 额外允许访问的根目录 |
 
+### 通知推送（notifications，fork 新增）
+
+| 配置 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `notifications.enabled` | boolean | `true` | 通知推送总开关 |
+| `notifications.target.kind` | `c2c`/`group` | `c2c` | 固定推送目标类型 |
+| `notifications.target.id` | string | `''` | 固定推送目标 openid；留空 = 自动学习首个私聊对象 |
+| `notifications.learnFromChats` | boolean | `true` | 是否从私聊消息学习推送目标并落盘（群聊不参与） |
+| `notifications.onDone.enabled` | boolean | `true` | 任务完成推送 |
+| `notifications.onDone.previewChars` | number | `0` | 预览截断字符数，0 = 推送完整最终文本 |
+| `notifications.onDone.header` | string | `## ✅ DSH 任务完成` | 推送页眉，空串 = 不加页眉 |
+| `notifications.onQuestion.enabled` | boolean | `true` | 提问推送（ask_user_question） |
+| `notifications.onQuestion.questionChars` | number | `120` | 问题文本截断字符数，0 = 不截断 |
+| `notifications.onQuestion.optionChars` | number | `60` | 选项文本截断字符数，0 = 不截断 |
+| `notifications.onApproval.enabled` | boolean | `true` | 审批推送（approval/request） |
+| `notifications.onApproval.commandChars` | number | `500` | 被 gate 命令回显截断字符数，0 = 不截断 |
+| `notifications.cooldownMs` | number | `0` | 同类完成推送最小间隔(ms)，0 = 不限制 |
+
 ## 内置命令
 
 | 命令 | 说明 |
@@ -160,6 +182,63 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 | `/bot-version` | 查看版本信息 |
 | `/bot-status` | 查看当前会话状态 |
 | `/bot-help` | 查看所有指令 |
+
+## 通知推送（fork 新增）
+
+上游把 QQ 会话当聊天前端；本 fork 额外补了另一个方向：**在桌面 / CLI / Web 里发起的工作，也能通过 QQ 收结果、答问题、批操作**。QQ 会话自己的轮次不会重复推送。
+
+### 推送目标
+
+按优先级解析：`notifications.target`（`id` 非空）→ 学习到的私聊目标 → 最近一次 QQ 会话（仅提问/审批兜底）。
+`learnFromChats` 打开时，用户第一次私聊机器人即被记为通知目标，并持久化到
+`<DSH home>/storages/im-qqbot/notification-target.json`，重启后继续生效。
+
+### 三类推送
+
+| 事件 | 推送内容 | 在 QQ 的回复方式 |
+|------|----------|------------------|
+| 任务完成（`turn/end` completed） | `onDone.header` + 最终回复文本（`previewChars>0` 时截断为单行预览） | 无需回复 |
+| 提问（`ask_user_question`） | 问题卡片 + 选项 + 作答引导（单选带内联按钮） | 选项编号 `1` / 字母 `A`；多选 `1,3`；或直接输入自定义文字 |
+| 审批（`approval/request`） | 工具名 + 命令回显 + 原因（带「允许/拒绝」按钮） | 「允许」/「拒绝」（也可回 `1`/`2` 或点按钮） |
+
+提问与审批都会**与宿主 Web/CLI 的回答者竞速**（先答先赢）；宿主侧没有可用通道时不会报错，继续等 QQ 回复。
+每个会话同一时间只保留一个待答问题 / 待批审批；会话被回收或插件停用时自动取消。
+QQ 先答时，Web 侧已弹出的问题卡片 / 审批提示不会被自动收回（之后再点不会再影响结果）。
+QQ 会话自身的提问/审批仍走原来的按钮通道，通知桥只处理非 QQ 会话。
+
+### 对外通知服务
+
+插件在 ctx 上提供 `im-qqbot` 服务（服务名与插件 id 一致），兄弟插件可解耦推送：
+
+```ts
+const notify = ctx.get('im-qqbot') as
+  | {
+      notify(text: string): Promise<void>
+      sendMessage(
+        target: { kind: 'c2c' | 'group'; id: string },
+        text: string,
+        images?: string[],
+      ): Promise<number>
+    }
+  | undefined
+
+await notify?.notify('构建完成 🎉')
+```
+
+`notify(text)` 推到通知目标；`sendMessage(target, text, images?)` 推到显式目标（`images` 为本地图片绝对路径）。
+
+### 配置示例
+
+```yaml
+- id: im-qqbot
+  config:
+    notifications:
+      target: { kind: c2c, id: '<user openid>' }   # 留空则自动学习
+      onDone: { previewChars: 200, header: '## ✅ DSH 任务完成' }
+      onQuestion: { enabled: true }
+      onApproval: { enabled: true }
+      cooldownMs: 3000
+```
 
 ## 核心模块
 
@@ -206,8 +285,14 @@ src/
 │   ├── vision-tool.ts          # 图片视觉理解
 │   ├── send-file-tool.ts       # 发送本地文件
 │   └── media-cleaner.ts        # 媒体 TTL 清理
+├── notification/               # 通知推送（fork 新增）
+│   ├── target-store.ts         # 推送目标学习 / 持久化 / 恢复
+│   ├── notification-channel.ts # 完成/提问/审批推送与 QQ 作答
+│   ├── service.ts              # 对外 ctx.get('im-qqbot') 通知服务
+│   └── format.ts               # 推送渲染与回复解析
 ├── middleware/                 # 中间件
 │   ├── question-answer.ts      # 问答答案处理
+│   ├── notification-answer.ts  # 通知提问/审批答复截获（fork 新增）
 │   └── attachment.ts           # 附件处理
 ├── shared/                     # 共享工具
 │   ├── utils.ts                # 通用函数
@@ -234,6 +319,8 @@ sessionKey: `qqbot:${appId}:${scope}:${peerId}`，由 SHA-256 确定性派生 Se
 - **附件发送** — 支持 `qqbot_send_file` 将本地文件发送给用户（默认启用路径白名单）
 - **问答互动** — 支持 `ask_user_question`，单选生成内联按钮（点一个其余变灰）、多选回复编号，逐题推进 + 问题级超时
 - **操作确认** — 支持 `approval/request`，关键操作通过「允许/拒绝」按钮请求用户确认
+- **通知桥（fork 新增）** — 非 QQ 会话的任务完成 / 提问 / 审批推送到 QQ，回复即作答；推送目标自动学习并持久化
+- **对外通知服务（fork 新增）** — 其他插件通过 `ctx.get('im-qqbot')` 解耦推送，无需耦合 QQ 通道代码
 
 ## 本地开发
 

@@ -26,10 +26,23 @@ import { startMediaCleanup } from '../media/media-cleaner.ts';
 import { ensureVisionInputModal, registerDescribeImageTool } from '../media/vision-tool.ts';
 import { registerSendFileTool, type MediaSenderLike } from '../media/send-file-tool.ts';
 import { DeliverablesDeliverer } from '../transport/deliverables.ts';
+import {
+  ImQQBotNotificationService,
+  NotificationChannel,
+  NotificationTargetStore,
+} from '../notification/index.ts';
+import type {
+  NotificationContextLike,
+  NotificationInteractionLike,
+  NotificationRootsLike,
+} from '../notification/index.ts';
 
 /**
  * interaction 统一分发器：按 button_data 的顶层 `t` 判别字段，路由到对应
- * channel（question / approval）。QQ 只有一个 interaction 入口，集中路由
+ * channel（question / approval）。
+ *
+ * QQ 会话的问答/审批优先由上游通道处理；非 QQ 会话（通知推送的卡片）由
+ * NotificationChannel 兜底。QQ 只有一个 interaction 入口，集中路由
  * 避免多通道各自 try 导致误判。
  */
 function dispatchInteraction(event: InteractionEvent, manager: SessionManager): boolean {
@@ -37,8 +50,21 @@ function dispatchInteraction(event: InteractionEvent, manager: SessionManager): 
   if (!raw) return false;
   const button = decodeButtonData(raw);
   if (!button) return false;
-  if (button.t === 'question') return manager.questionChannel?.handleInteraction(event) ?? false;
-  if (button.t === 'approval') return manager.approvalChannel?.handleInteraction(event) ?? false;
+  const interaction = event as unknown as NotificationInteractionLike;
+  if (button.t === 'question') {
+    return (
+      manager.questionChannel?.handleInteraction(event) ??
+      manager.notificationChannel?.handleInteraction(interaction) ??
+      false
+    );
+  }
+  if (button.t === 'approval') {
+    return (
+      manager.approvalChannel?.handleInteraction(event) ??
+      manager.notificationChannel?.handleInteraction(interaction) ??
+      false
+    );
+  }
   return false;
 }
 
@@ -137,6 +163,33 @@ export async function bootstrapGateway(
   manager.approvalChannel = approvalChannel;
   approvalChannel.install(ctx as unknown as ApprovalChannelContext);
 
+  // ── 通知推送（fork 新增）：非 QQ 会话的完成 / 提问 / 审批 → QQ ──
+  // 必须在 question/approval 通道之后装配：提问包装要包在 QQ 通道的 ask 外层，
+  // 审批监听不带 prepend 才会排在上游审批通道之后（QQ 会话由上游处理，这里放行）。
+  const notificationStore = new NotificationTargetStore(config.notifications, logger);
+  await notificationStore.restore();
+  const notificationChannel = new NotificationChannel({
+    manager,
+    sender,
+    media: mediaSender,
+    config,
+    logger,
+    store: notificationStore,
+    agents: agents as unknown as NotificationRootsLike,
+  });
+  manager.notificationChannel = notificationChannel;
+  notificationChannel.install(ctx as unknown as NotificationContextLike);
+
+  // 对外通知服务：兄弟插件通过 ctx.get('im-qqbot') 推送（服务名与插件 id 一致）
+  let notificationService: ImQQBotNotificationService | undefined;
+  try {
+    notificationService = new ImQQBotNotificationService(ctx, notificationChannel);
+  } catch (err) {
+    logger.warn(
+      `im-qqbot: notification service registration failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // ── 按钮点击回调（interaction）：统一分发到问答/审批通道 ──
   bot.on('interaction', async (_iCtx: unknown, event: InteractionEvent) => {
     // scope/targetId 推导对齐消息事件（inbound.ts）：按 scene 判定类型，群用 group_openid，私聊用 user_openid
@@ -195,6 +248,9 @@ export async function bootstrapGateway(
 
       return async () => {
         logger.info('Shutting down');
+        notificationService?.detach();
+        notificationChannel.dispose();
+        await notificationStore.flush();
         await manager.disposeAll();
         bot.stop();
       };

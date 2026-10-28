@@ -34,3 +34,16 @@
         sessionIdleTimeout: 1800000
         showToolResults: false
         debug: true
+        # 通知推送（fork 新增）：非 QQ 会话的任务完成 / 提问 / 审批 → QQ
+        # 缺省自动学习首个私聊对象；也可显式固定目标：
+        # notifications:
+        #   target:
+        #     kind: c2c
+        #     id: '<user openid>'
+        #   onDone:
+        #     previewChars: 0        # 0 = 推送完整最终文本
+        #     header: '## ✅ DSH 任务完成'
+        #   onQuestion:
+        #     enabled: true
+        #   onApproval:
+        #     enabled: true

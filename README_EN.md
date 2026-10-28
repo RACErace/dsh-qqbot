@@ -24,6 +24,8 @@ Scan to join the QQ group / channel
 
 </div>
 
+> **This repository is a fork**: based on upstream [tencent-connect/dsh-qqbot](https://github.com/tencent-connect/dsh-qqbot) (npm `@tencent-connect/dsh-qqbot`). It adds **QQ notifications** on top of the original plugin (task-done / question / approval from non-QQ sessions pushed to QQ, plus a notification service for sibling plugins). Everything else matches upstream; sync with `git fetch upstream && git merge upstream/main`.
+
 ## Architecture
 
 ```
@@ -31,6 +33,8 @@ QQ User → QQ WebSocket → dsh-qqbot → ctx.agents → dsh agent loop → LLM
                                  ↑                           │
                                  └── session/event ──────────┘
                                        (assistant reply → QQ sendMarkdown)
+
+Desktop / CLI / Web session ── turn/end · ask_user_question · approval/request ──→ notification bridge → QQ
 ```
 
 ## Installation
@@ -147,6 +151,24 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 | `sendFile.restrictPaths` | boolean | `true` | Enable path allowlist (media + cwd + extraRoots only) |
 | `sendFile.extraRoots` | string[] | `[]` | Extra allowed root directories |
 
+### Notifications (notifications, fork)
+
+| Config | Type | Default | Description |
+|------|------|--------|------|
+| `notifications.enabled` | boolean | `true` | Master switch for notifications |
+| `notifications.target.kind` | `c2c`/`group` | `c2c` | Fixed target kind |
+| `notifications.target.id` | string | `''` | Fixed target openid; empty = learn the first private chat |
+| `notifications.learnFromChats` | boolean | `true` | Learn the notification target from private messages and persist it (groups excluded) |
+| `notifications.onDone.enabled` | boolean | `true` | Push on task completion |
+| `notifications.onDone.previewChars` | number | `0` | Preview truncation, 0 = push the full final text |
+| `notifications.onDone.header` | string | `## ✅ DSH 任务完成` | Push header, empty = no header |
+| `notifications.onQuestion.enabled` | boolean | `true` | Push questions (ask_user_question) |
+| `notifications.onQuestion.questionChars` | number | `120` | Question text truncation, 0 = none |
+| `notifications.onQuestion.optionChars` | number | `60` | Option text truncation, 0 = none |
+| `notifications.onApproval.enabled` | boolean | `true` | Push approvals (approval/request) |
+| `notifications.onApproval.commandChars` | number | `500` | Command echo truncation, 0 = none |
+| `notifications.cooldownMs` | number | `0` | Minimum interval between completion pushes (ms), 0 = unlimited |
+
 ## Built-in Commands
 
 | Command | Description |
@@ -160,6 +182,63 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 | `/bot-version` | View version info |
 | `/bot-status` | View current session status |
 | `/bot-help` | View all commands |
+
+## Notifications (fork)
+
+Upstream turns QQ chats into a chat frontend; this fork adds the other direction: **work started in Desktop / CLI / Web can deliver results, ask questions and request approvals through QQ**. A QQ chat's own turns are never pushed twice.
+
+### Notification target
+
+Resolved in priority order: `notifications.target` (non-empty `id`) → learned private-chat target → most recent QQ chat (fallback for questions/approvals only).
+With `learnFromChats` enabled, the first private message from a user becomes the notification target and is persisted to
+`<DSH home>/storages/im-qqbot/notification-target.json`, so it survives restarts.
+
+### Three kinds of push
+
+| Event | Pushed content | How to reply in QQ |
+|------|----------------|--------------------|
+| Task done (`turn/end` completed) | `onDone.header` + final reply text (`previewChars>0` truncates to a one-line preview) | nothing needed |
+| Question (`ask_user_question`) | Question card + options + hint (single-select comes with inline buttons) | option number `1` / letter `A`; multi-select `1,3`; or free text |
+| Approval (`approval/request`) | Tool name + command echo + reason (with allow/deny buttons) | "allow" / "deny" (or `1` / `2`, or tap the buttons) |
+
+Questions and approvals **race the host answerer** (Web card / CLI prompt): first answer wins. When the host has no provider, the request does not fail — it keeps waiting for QQ.
+At most one pending question / approval per session; they are cancelled when the session is evicted or the plugin unloads.
+When QQ answers first, an already-shown Web question card / approval prompt is not retracted (clicking it later has no effect).
+Questions/approvals inside QQ chats still use the original button channels — the bridge only handles non-QQ sessions.
+
+### Notification service
+
+The plugin provides an `im-qqbot` ctx service (name matches the plugin id) so sibling plugins can push without coupling:
+
+```ts
+const notify = ctx.get('im-qqbot') as
+  | {
+      notify(text: string): Promise<void>
+      sendMessage(
+        target: { kind: 'c2c' | 'group'; id: string },
+        text: string,
+        images?: string[],
+      ): Promise<number>
+    }
+  | undefined
+
+await notify?.notify('Build finished 🎉')
+```
+
+`notify(text)` pushes to the notification target; `sendMessage(target, text, images?)` pushes to an explicit target (`images` are absolute local image paths).
+
+### Example config
+
+```yaml
+- id: im-qqbot
+  config:
+    notifications:
+      target: { kind: c2c, id: '<user openid>' }   # empty = learn automatically
+      onDone: { previewChars: 200, header: '## ✅ DSH 任务完成' }
+      onQuestion: { enabled: true }
+      onApproval: { enabled: true }
+      cooldownMs: 3000
+```
 
 ## Core Modules
 
@@ -197,8 +276,14 @@ src/
 │   ├── vision-tool.ts          # Image vision understanding
 │   ├── send-file-tool.ts       # Send local files
 │   └── media-cleaner.ts        # Media TTL cleanup
+├── notification/               # Notifications (fork)
+│   ├── target-store.ts         # Target learning / persistence / restore
+│   ├── notification-channel.ts # Done/question/approval push and QQ answering
+│   ├── service.ts              # Public ctx.get('im-qqbot') notification service
+│   └── format.ts               # Rendering and reply parsing
 ├── middleware/                 # Middleware
 │   ├── question-answer.ts      # Q&A answer handling
+│   ├── notification-answer.ts  # Notification question/approval reply capture (fork)
 │   └── attachment.ts           # Attachment handling
 ├── shared/                     # Shared utilities
 │   ├── utils.ts                # Common helpers
@@ -225,6 +310,8 @@ Resolution strategy: in-process reuse → persisted resume → fresh create.
 - **File sending** — supports `qqbot_send_file` to send local files to users (path allowlist enabled by default)
 - **Question interaction** — supports `ask_user_question` with inline keyboard buttons (mutually exclusive) or numbered replies, one question at a time with timeout
 - **Approval confirmation** — supports `approval/request` to ask for user confirmation on critical actions via allow/deny buttons
+- **Notification bridge (fork)** — task-done / question / approval from non-QQ sessions pushed to QQ, replying in QQ answers them; the target is learned automatically and persisted
+- **Notification service (fork)** — sibling plugins push via `ctx.get('im-qqbot')` without coupling to the QQ transport code
 
 ## Local Development
 

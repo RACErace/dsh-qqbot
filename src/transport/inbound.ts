@@ -104,6 +104,9 @@ export async function handleInbound(
     msgId: msg.messageId,
   };
 
+  // 通知推送（fork 新增）：记录最近 QQ 会话，用于学习推送目标 / 作提问审批兜底
+  manager.notificationChannel?.onInboundMessage(scope, peerId);
+
   // ── 组装 agentBody（下载结果经 mwState.downloadedFiles 提供） ──
   const agentBody = assembleAgentBody(msg, mwState, scope, logger);
 

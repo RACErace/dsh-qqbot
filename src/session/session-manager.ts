@@ -22,6 +22,7 @@ import type { ModelRoute, ModelEntry } from '../model/types.ts';
 import { IdleEvictor } from './idle-evictor.ts';
 import type { QuestionChannel } from '../features/question-channel.ts';
 import type { ApprovalChannel } from '../features/approval-channel.ts';
+import type { NotificationChannel } from '../notification/notification-channel.ts';
 import type {
   SessionEventLike,
   DshAgent,
@@ -78,6 +79,8 @@ export class SessionManager {
   public questionChannel?: QuestionChannel;
   /** 由 bootstrap 注入的审批通道（approval/request → QQ），会话回收时清理其待批审批 */
   public approvalChannel?: ApprovalChannel;
+  /** 由 bootstrap 注入的通知通道（非 QQ 会话事件 → QQ），会话回收时清理其待答/待批 */
+  public notificationChannel?: NotificationChannel;
 
   constructor(
     ctx: Context,
@@ -102,6 +105,7 @@ export class SessionManager {
         // 回收会话时统一清理其待答问题/待批审批，避免 pending 悬挂泄漏
         this.questionChannel?.cancelPending(key);
         this.approvalChannel?.cancelPending(key);
+        this.notificationChannel?.cancelForSession(record.sessionId);
       },
     );
 
@@ -615,6 +619,7 @@ export class SessionManager {
 
   async disposeAll(): Promise<void> {
     this.evictor.dispose();
+    this.notificationChannel?.cancelAll();
     const records = [...this.sessions.values()];
     this.sessions.clear();
     for (const record of records) {

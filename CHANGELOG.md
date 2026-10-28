@@ -6,6 +6,26 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.6.0] - 2026-10-28
+
+> 本版起为 [RACErace/dsh-qqbot](https://github.com/RACErace/dsh-qqbot) fork（上游 [tencent-connect/dsh-qqbot](https://github.com/tencent-connect/dsh-qqbot)），新增 QQ 通知推送。
+
+### 新功能（fork 新增）
+
+- **任务完成推送**：在桌面 / CLI / Web 里发起的 agent 轮次完成时，把最终回复文本推送到 QQ。只推送非 QQ 会话（QQ 会话自己的回复不会重复推送），支持页眉、预览截断与冷却间隔。
+- **QQ 内回答提问**：`ask_user_question` 在非 QQ 会话里同时推送到 QQ，用户直接在 QQ 回复选项编号/字母或自定义文字即可作答，与 Web 卡片竞速（先答先赢）；逐题推进，单选可点内联按钮。
+- **QQ 内确认审批**：`approval/request` 在非 QQ 会话里推送到 QQ，回复「允许/拒绝」或点击按钮完成决策；宿主没有审批通道时不再报「没有可用的确认通道」。
+- **对外通知服务**：插件在 ctx 上提供 `im-qqbot` 服务，其他插件可 `ctx.get('im-qqbot')` 调用 `notify(text)` / `sendMessage(target, text, images)` / `lastTarget()` 主动推送。
+- **推送目标持久化**：首个私聊对象自动学习为通知目标并落盘到 `<DSH home>/storages/im-qqbot/notification-target.json`，重启后继续可用；也可在配置里固定 `notifications.target`。
+
+### 配置
+
+- 新增 `notifications` 配置节：`enabled`、`target`、`learnFromChats`、`onDone`、`onQuestion`、`onApproval`、`cooldownMs`（完整说明见 README）。
+
+### 工程
+
+- 新增 `src/notification/`（目标存储 / 推送与作答通道 / 渲染解析 / 对外服务）与 `src/middleware/notification-answer.ts`，补 43 个 vitest 用例（总计 198）。
+
 ## [0.5.3] - 2026-10-27
 
 ### 新功能

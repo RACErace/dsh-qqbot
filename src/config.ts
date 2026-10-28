@@ -52,6 +52,48 @@ export interface SendFileConfig {
   maxFiles: number;
 }
 
+/** 通知推送目标（fork 新增）：id 留空 = 未配置，走自动学习 */
+export interface NotificationTargetConfig {
+  /** 目标类型：c2c 私聊 / group 群聊 */
+  kind: 'c2c' | 'group';
+  /** 目标 openid（c2c 为用户 openid，group 为群 openid） */
+  id: string;
+}
+
+/** 通知推送配置（fork 新增）：非 QQ 会话的完成/提问/审批 → QQ */
+export interface NotificationsConfig {
+  /** 通知推送总开关 */
+  enabled: boolean;
+  /** 固定推送目标；id 留空时自动学习私聊目标 / 最近会话 */
+  target: NotificationTargetConfig;
+  /** 是否从私聊消息学习推送目标并持久化（只学 c2c，群聊不参与） */
+  learnFromChats: boolean;
+  /** 任务完成推送 */
+  onDone: {
+    enabled: boolean;
+    /** 预览截断字符数，0 = 推送完整最终文本 */
+    previewChars: number;
+    /** 推送页眉，空串 = 不加页眉 */
+    header: string;
+  };
+  /** 提问推送（ask_user_question） */
+  onQuestion: {
+    enabled: boolean;
+    /** 问题文本截断字符数，0 = 不截断 */
+    questionChars: number;
+    /** 选项文本截断字符数，0 = 不截断 */
+    optionChars: number;
+  };
+  /** 审批推送（approval/request） */
+  onApproval: {
+    enabled: boolean;
+    /** 被 gate 命令回显截断字符数，0 = 不截断 */
+    commandChars: number;
+  };
+  /** 同类完成推送的最小间隔(ms)，0 = 不限制 */
+  cooldownMs: number;
+}
+
 export interface ImQQBotConfig {
   /** QQ Bot AppID */
   appId: string;
@@ -97,6 +139,8 @@ export interface ImQQBotConfig {
   vision: VisionConfig;
   /** 附件发送（qqbot_send_file 工具与交付物投递共用） */
   sendFile: SendFileConfig;
+  /** 通知推送（非 QQ 会话的完成 / 提问 / 审批 → QQ；fork 新增） */
+  notifications: NotificationsConfig;
 }
 
 /** 访问控制子 Schema（独立导出：config 路由的服务端校验复用） */
@@ -105,6 +149,45 @@ export const AccessControlSchema: Schema<AccessControlConfig> = Schema.object({
   c2cAllow: Schema.array(Schema.string()).default([]).description('C2C白名单'),
   groupMode: Schema.union(['open', 'allowlist', 'disabled']).default('open').description('群聊访问模式'),
   groupAllow: Schema.array(Schema.string()).default([]).description('群聊白名单'),
+});
+
+/** 通知推送目标 Schema（fork 新增；id 留空 = 未配置，走自动学习） */
+const NotificationTargetSchema = Schema.object({
+  kind: Schema.union(['c2c', 'group']).default('c2c').description('推送目标类型'),
+  id: Schema.string().default('').description('目标 openid（留空 = 未配置，自动学习）'),
+});
+
+/** 通知推送 Schema（fork 新增） */
+export const NotificationsSchema: Schema<NotificationsConfig> = Schema.object({
+  enabled: Schema.boolean().default(true).description('通知推送总开关'),
+  target: NotificationTargetSchema.default({ kind: 'c2c', id: '' }).description('固定推送目标'),
+  learnFromChats: Schema.boolean().default(true).description('从私聊消息学习推送目标并持久化'),
+  onDone: Schema.object({
+    enabled: Schema.boolean().default(true).description('任务完成推送'),
+    previewChars: Schema.number().default(0).description('预览截断字符数，0 = 推送完整最终文本'),
+    header: Schema.string().default('## ✅ DSH 任务完成').description('推送页眉，空串 = 不加页眉'),
+  }).default({
+    enabled: true,
+    previewChars: 0,
+    header: '## ✅ DSH 任务完成',
+  }).description('任务完成推送配置'),
+  onQuestion: Schema.object({
+    enabled: Schema.boolean().default(true).description('提问推送（ask_user_question）'),
+    questionChars: Schema.number().default(120).description('问题文本截断字符数，0 = 不截断'),
+    optionChars: Schema.number().default(60).description('选项文本截断字符数，0 = 不截断'),
+  }).default({
+    enabled: true,
+    questionChars: 120,
+    optionChars: 60,
+  }).description('提问推送配置'),
+  onApproval: Schema.object({
+    enabled: Schema.boolean().default(true).description('审批推送（approval/request）'),
+    commandChars: Schema.number().default(500).description('命令回显截断字符数，0 = 不截断'),
+  }).default({
+    enabled: true,
+    commandChars: 500,
+  }).description('审批推送配置'),
+  cooldownMs: Schema.number().default(0).description('同类完成推送最小间隔(ms)，0 = 不限制'),
 });
 
 export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
@@ -169,4 +252,13 @@ export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
     sendPresentedFiles: true,
     maxFiles: 4,
   }).description('附件发送配置'),
+  notifications: NotificationsSchema.default({
+    enabled: true,
+    target: { kind: 'c2c', id: '' },
+    learnFromChats: true,
+    onDone: { enabled: true, previewChars: 0, header: '## ✅ DSH 任务完成' },
+    onQuestion: { enabled: true, questionChars: 120, optionChars: 60 },
+    onApproval: { enabled: true, commandChars: 500 },
+    cooldownMs: 0,
+  }).description('通知推送配置（非 QQ 会话的完成 / 提问 / 审批 → QQ；fork 新增）'),
 });

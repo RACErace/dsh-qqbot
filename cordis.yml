@@ -110,3 +110,23 @@
       enabled: false
       provider: ''   # 视觉模型 provider（需与上方 llm-pi-ai 配置的路由一致，如 hunyuan）
       model: ''      # 视觉模型 id（如 hunyuan-vision）
+    # 通知推送（fork 新增）：非 QQ 会话的任务完成 / 提问 / 审批 → QQ
+    # 目标缺省自动学习首个私聊对象，也可显式固定：
+    notifications:
+      enabled: true
+      target:
+        kind: c2c
+        id: ''       # 留空 = 自动学习；填写 user openid 可固定推送目标
+      learnFromChats: true
+      onDone:
+        enabled: true
+        previewChars: 0        # 0 = 推送完整最终文本
+        header: '## ✅ DSH 任务完成'
+      onQuestion:
+        enabled: true
+        questionChars: 120
+        optionChars: 60
+      onApproval:
+        enabled: true
+        commandChars: 500
+      cooldownMs: 0

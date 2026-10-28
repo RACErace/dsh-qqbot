@@ -6,6 +6,26 @@ This file records significant dsh-qqbot updates from a product perspective, focu
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.0] - 2026-10-28
+
+> Starting with this release this is the [RACErace/dsh-qqbot](https://github.com/RACErace/dsh-qqbot) fork (upstream: [tencent-connect/dsh-qqbot](https://github.com/tencent-connect/dsh-qqbot)), adding QQ notifications.
+
+### Added (fork)
+
+- **Task-done notifications**: when a turn started in Desktop / CLI / Web finishes, its final reply text is pushed to QQ. Only non-QQ sessions are pushed (a QQ chat's own reply is not duplicated); configurable header, preview truncation and cooldown.
+- **Answer questions in QQ**: `ask_user_question` from a non-QQ session is also pushed to QQ; reply with an option number/letter or free text to answer, racing the Web card (first answer wins). Questions advance one at a time; single-select options come with inline buttons.
+- **Approve in QQ**: `approval/request` from a non-QQ session is pushed to QQ; reply "allow/deny" or tap the buttons to decide. When the host has no approval channel it no longer fails with "no approval channel is available".
+- **Notification service**: the plugin provides an `im-qqbot` ctx service; sibling plugins can `ctx.get('im-qqbot')` and call `notify(text)` / `sendMessage(target, text, images)` / `lastTarget()` to push proactively.
+- **Persistent notification target**: the first private chat is learned as the notification target and stored at `<DSH home>/storages/im-qqbot/notification-target.json`, so notifications survive restarts; a fixed target can be configured via `notifications.target`.
+
+### Configuration
+
+- New `notifications` section: `enabled`, `target`, `learnFromChats`, `onDone`, `onQuestion`, `onApproval`, `cooldownMs` (see README for details).
+
+### Engineering
+
+- New `src/notification/` (target store / question-and-approval channel / formatting / service) and `src/middleware/notification-answer.ts`, plus 43 new vitest cases (198 total).
+
 ## [0.5.3] - 2026-10-27
 
 ### Added

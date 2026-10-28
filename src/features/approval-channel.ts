@@ -40,7 +40,6 @@ export interface ApprovalRequest {
   reason?: string;
   signal?: AbortSignal;
 }
-
 // ── 依赖接口（结构化，便于单测） ──
 
 export interface ApprovalSessionRecordLike {
@@ -82,7 +81,7 @@ const COMMAND_CLIP = 500;
  * 从 session log 按 callId 找回被 gate 的命令（审批请求本身不重复携带 arguments）。
  * 对齐 TUI/web 的 `commandOf` 语义。
  */
-function commandOf(req: ApprovalRequest): string | undefined {
+export function commandOf(req: ApprovalRequest): string | undefined {
   if (req.callId === undefined) return undefined;
   // 审批请求可能来自没有 live session 的上下文（例如跨进程/投影后的 Agent），
   // 此时只是拿不到命令原文，不能因此让整个审批失败。

@@ -1,8 +1,8 @@
 {
   "name": "@tencent-connect/dsh-qqbot",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "icon": "./assets/icons/qq_logo.svg",
-  "description": "在 QQ 私聊和群聊里直接对话 DeepSeek Harness。 Chat with DeepSeek Harness in QQ private and group chats.",
+  "description": "在 QQ 私聊和群聊里直接对话 DeepSeek Harness，并把任务完成 / 提问 / 审批推送到 QQ。 Chat with DeepSeek Harness in QQ private and group chats, and get task-done / question / approval notifications pushed to QQ.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -37,7 +37,8 @@
     "cordis",
     "plugin",
     "chatbot",
-    "im"
+    "im",
+    "notification"
   ],
   "license": "MIT",
   "engines": {
@@ -45,11 +46,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/tencent-connect/dsh-qqbot.git"
+    "url": "https://github.com/RACErace/dsh-qqbot.git"
   },
-  "homepage": "https://github.com/tencent-connect/dsh-qqbot#readme",
+  "homepage": "https://github.com/RACErace/dsh-qqbot#readme",
   "bugs": {
-    "url": "https://github.com/tencent-connect/dsh-qqbot/issues"
+    "url": "https://github.com/RACErace/dsh-qqbot/issues"
   },
   "dsh": {
     "bundle": {

@@ -25,6 +25,7 @@ import type { Logger } from '../types.ts';
 import { buildCommandList } from '../commands/index.ts';
 import { attachmentProcessor } from '../middleware/attachment.ts';
 import { questionAnswer } from '../middleware/question-answer.ts';
+import { notificationAnswer } from '../middleware/notification-answer.ts';
 import { getHistoryStore, historyGroupKey } from '../features/history-store.ts';
 
 export function setupMiddlewares(
@@ -93,6 +94,10 @@ export function setupMiddlewares(
 
   // 8.5. 待答问题截获（在 concurrencyGuard 之前，答案消息不排队直接作答）
   bot.use(questionAnswer(manager));
+
+  // 8.6. 通知提问/审批答复截获（fork 新增；同样必须在 concurrencyGuard 之前，
+  //      否则答复会排在「正阻塞等答复」的 turn 后面造成死锁）
+  bot.use(notificationAnswer(manager));
 
   // 9. 并发串行 + 消息合并（同 peer 排队，避免 session 冲突）
   bot.use(concurrencyGuard({
