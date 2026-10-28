@@ -1,6 +1,6 @@
 {
   "name": "@tencent-connect/dsh-qqbot",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "icon": "./assets/icons/qq_logo.svg",
   "description": "在 QQ 私聊和群聊里直接对话 DeepSeek Harness，并把任务完成 / 提问 / 审批推送到 QQ。 Chat with DeepSeek Harness in QQ private and group chats, and get task-done / question / approval notifications pushed to QQ.",
   "type": "module",

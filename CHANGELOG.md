@@ -6,6 +6,12 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.6.4] - 2026-10-28
+
+### 问题修复
+
+- **HMR 重载后，QQ 会话里的 `ask_user_question` 永远收不到问题**：`userQuestions` 是进程级服务，旧 fiber 卸载时 `QuestionChannel` 没有注册清理，补丁残留在 `uq.ask` 上；新 fiber 看到 `__qqQuestionPatched` 标记就跳过安装，于是 QQ 会话的提问落到**已卸载 fiber 的死闭包**——旧 manager 找不到新会话，问题既不推 QQ 也不会报错（会话日志里只有一条孤立的 `tool/call`）。现在安装不盲信标记：优先用服务上保存的原始 ask 还原，旧版本遗留时从服务原型恢复宿主真实实现，再重新接管；`install` 同时注册 fiber effect，卸载即还原，旧实例卸载也不会覆盖新实例的补丁。通知通道的包装还原同样加了「只认自己补丁」的守卫。新增 4 个回归用例。
+
 ## [0.6.3] - 2026-10-28
 
 ### 问题修复

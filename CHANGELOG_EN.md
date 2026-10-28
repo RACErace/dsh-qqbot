@@ -6,6 +6,12 @@ This file records significant dsh-qqbot updates from a product perspective, focu
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.4] - 2026-10-28
+
+### Fixed
+
+- **After an HMR reload, `ask_user_question` inside a QQ chat never reached the user**: `userQuestions` is a process-global service, and on fiber unload the old `QuestionChannel` registered no cleanup, leaving its patch on `uq.ask`; the new fiber saw the `__qqQuestionPatched` marker and skipped installation, so QQ-session questions landed in a dead closure of the unloaded fiber — the old manager could not find the new session, so nothing was pushed to QQ and no error surfaced (the session log held a lone `tool/call`). Installation no longer trusts the marker: it restores the saved original ask, or recovers the host implementation from the service prototype for entries left by older versions, and takes over again; `install` also registers a fiber effect that restores on unload, and an old instance's uninstall never overwrites a newer instance's patch. The notification wrapper's restore now checks that it only reverts its own patch. Added 4 regression tests.
+
 ## [0.6.3] - 2026-10-28
 
 ### Fixed

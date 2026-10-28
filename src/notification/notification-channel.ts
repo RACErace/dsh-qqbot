@@ -123,6 +123,8 @@ export class NotificationChannel {
 
   private installedUq?: UserQuestionsLike;
   private previousAsk?: (request: NotificationAskRequest) => Promise<NotificationAskResult>;
+  /** 本实例装到 uq.ask 上的包装函数（还原时只认自己的补丁） */
+  private installedWrapper?: (request: NotificationAskRequest) => Promise<NotificationAskResult>;
   /** 装配时的宿主 ctx（取消客户端卡片需要访问 typertGateway） */
   private ctx?: NotificationContextLike;
   /** 取消客户端卡片的重试定时器（dispose 时清理） */
@@ -187,11 +189,12 @@ export class NotificationChannel {
     for (const timer of this.clientCancelTimers) clearTimeout(timer);
     this.clientCancelTimers.clear();
     this.ctx = undefined;
-    if (this.installedUq && this.previousAsk) {
+    if (this.installedUq && this.previousAsk && this.installedUq.ask === this.installedWrapper) {
       this.installedUq.ask = this.previousAsk;
     }
     this.installedUq = undefined;
     this.previousAsk = undefined;
+    this.installedWrapper = undefined;
   }
 
   /**
@@ -235,14 +238,19 @@ export class NotificationChannel {
     this.installedUq = uq;
     this.previousAsk = previousAsk;
     const self = this;
-    uq.ask = (request: NotificationAskRequest) => self.askViaNotification(request, previousAsk);
+    const wrapper = (request: NotificationAskRequest) => self.askViaNotification(request, previousAsk);
+    this.installedWrapper = wrapper;
+    uq.ask = wrapper;
     ctx.effect(
       () => () => {
-        if (self.installedUq === uq) {
+        // 只还原自己装的补丁：宿主 QuestionChannel 的 fiber 清理若先跑并
+        // 已把 ask 还原成宿主原始实现，这里不能再覆盖回上一代闭包。
+        if (self.installedUq === uq && uq.ask === wrapper) {
           uq.ask = previousAsk;
-          self.installedUq = undefined;
-          self.previousAsk = undefined;
         }
+        self.installedUq = undefined;
+        self.previousAsk = undefined;
+        self.installedWrapper = undefined;
       },
       'im-qqbot.notification.ask()',
     );

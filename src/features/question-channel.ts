@@ -48,7 +48,12 @@ export interface UserQuestionResult {
 
 export interface UserQuestionsServiceLike {
   ask: (request: UserQuestionRequest) => Promise<UserQuestionResult>;
+  /** HMR 标记（0.6.4 起仅作兼容；安装时会自愈旧 fiber 遗留的补丁） */
   __qqQuestionPatched?: boolean;
+  /** 宿主原始 ask（首次安装时保存，HMR 重载后据此自愈） */
+  __qqQuestionOriginalAsk?: UserQuestionsServiceLike['ask'];
+  /** 当前补丁所属的通道实例（判断 fiber 卸载时是否该还原） */
+  __qqQuestionOwner?: unknown;
 }
 
 // ── 依赖接口（结构化，便于单测） ──
@@ -126,18 +131,36 @@ export class QuestionChannel {
 
   /**
    * 包装 userQuestions.ask：QQ 会话走 QQ 通道，其余委托原实现。
-   * 幂等（已 patch 则跳过）；服务缺失或 ask 非函数时优雅禁用。
+   *
+   * HMR 自愈：userQuestions 是进程级服务，上一代 fiber 卸载时若没机会调用
+   * uninstall（0.6.3 及更早版本的 install 没有注册 effect 清理），它的补丁会
+   * 留在 `uq.ask` 上——旧闭包引用的是已卸载 fiber 的 manager，新 fiber 若看到
+   * `__qqQuestionPatched` 就跳过安装，QQ 会话里的 ask_user_question 会落到死
+   * 闭包上，表现为「问题永远送不到 QQ」。因此这里不盲信标记：
+   *   1. 优先用服务上保存的原始 ask 还原；
+   *   2. 没有保存过（旧版本遗留）时从服务原型取宿主真实实现；
+   *   3. 安装后注册 fiber effect，fiber 卸载时还原，后续重载不再留脏。
    */
-  public install(ctx: { get(name: string): unknown }): void {
+  public install(ctx: { get(name: string): unknown; effect?(fn: () => () => void, name?: string): unknown }): void {
     const uq = ctx.get('userQuestions') as UserQuestionsServiceLike | undefined;
-    if (!uq || uq.__qqQuestionPatched) return;
+    if (!uq) return;
     if (typeof uq.ask !== 'function') {
       this.logger.warn('im-qqbot: userQuestions service lacks ask() — QQ question channel disabled');
       return;
     }
 
+    // 1) 还原上一代 fiber 的补丁（若有）
+    if (uq.__qqQuestionPatched === true) {
+      const recovered = uq.__qqQuestionOriginalAsk ?? this.recoverOriginalAsk(uq);
+      if (typeof recovered === 'function') uq.ask = recovered;
+    }
+    // 2) 记录宿主原始实现（只记录一次；后续重载沿用同一个原始函数）
+    if (typeof uq.__qqQuestionOriginalAsk !== 'function') {
+      uq.__qqQuestionOriginalAsk = uq.ask.bind(uq);
+    }
+    this.origAsk = uq.__qqQuestionOriginalAsk;
+
     const self = this;
-    this.origAsk = uq.ask.bind(uq);
     uq.ask = async function qqRoutedAsk(request: UserQuestionRequest): Promise<UserQuestionResult> {
       const sessionId = request?.agent?.id;
       const record = sessionId ? self.manager.findBySessionId(sessionId) : undefined;
@@ -145,14 +168,36 @@ export class QuestionChannel {
       return self.origAsk!(request);
     };
     Object.defineProperty(uq, '__qqQuestionPatched', { value: true, configurable: true, enumerable: false });
+    uq.__qqQuestionOwner = this;
     this.uq = uq;
+    // 3) fiber 卸载时还原（HMR 重载不留死闭包）
+    ctx.effect?.(() => () => this.uninstall(), 'im-qqbot.question-channel');
     this.logger.info('im-qqbot: QQ question channel installed');
   }
 
+  /**
+   * 从服务对象上恢复宿主原始 ask。
+   *
+   * 旧版本（≤0.6.3）安装时没有保存原始实现，只能从服务原型取：宿主服务把
+   * ask 定义在类原型上，而补丁是实例自己的属性。取不到时退回当前 ask
+   * （最坏情况仍是旧行为）。
+   */
+  private recoverOriginalAsk(uq: UserQuestionsServiceLike): UserQuestionsServiceLike['ask'] {
+    const prototype = Object.getPrototypeOf(uq) as { ask?: UserQuestionsServiceLike['ask'] } | null;
+    const protoAsk = prototype?.ask;
+    if (typeof protoAsk === 'function') return protoAsk.bind(uq);
+    return uq.ask.bind(uq);
+  }
+
   public uninstall(): void {
-    if (this.uq && this.origAsk) {
-      this.uq.ask = this.origAsk;
-      delete this.uq.__qqQuestionPatched;
+    const uq = this.uq;
+    if (uq && this.origAsk) {
+      // 只有当前补丁仍属于本实例时才还原；已被新 fiber 接管时保持新补丁不动
+      if (uq.__qqQuestionOwner === this) {
+        uq.ask = this.origAsk;
+        delete uq.__qqQuestionPatched;
+        delete uq.__qqQuestionOwner;
+      }
       this.uq = undefined;
       this.origAsk = undefined;
     }
