@@ -6,6 +6,12 @@ This file records significant dsh-qqbot updates from a product perspective, focu
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.1] - 2026-10-28
+
+### Fixed
+
+- **Buttons on notification cards did nothing when tapped**: the `interaction` dispatcher chained channel `handleInteraction` calls with `??`, but they return boolean — a QQ-chat channel returning `false` for a non-QQ session is not nullish, so it short-circuited the notification fallback. Symptom: the notification question/approval card showed buttons, tapping one made the QQ client say "don't repeat the operation", and the question/approval was never answered (text replies still worked). Chaining now uses `||`; the dispatcher moved to `src/features/interaction-dispatch.ts` with 4 regression tests.
+
 ## [0.6.0] - 2026-10-28
 
 > Starting with this release this is the [RACErace/dsh-qqbot](https://github.com/RACErace/dsh-qqbot) fork (upstream: [tencent-connect/dsh-qqbot](https://github.com/tencent-connect/dsh-qqbot)), adding QQ notifications.

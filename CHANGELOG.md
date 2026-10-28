@@ -6,6 +6,12 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.6.1] - 2026-10-28
+
+### 问题修复
+
+- **通知卡片上的按钮点击无效**：`interaction` 分发器用 `??` 串联各通道的 `handleInteraction`，而它返回 boolean——QQ 会话通道对非 QQ 会话返回 `false`，`false` 不是 nullish，直接把兜底的通知通道短路掉。表现为：QQ 里能看到通知提问/审批卡片的按钮，点击后客户端提示「请勿重复操作」，但问题/审批永远不会被作答（只能改用文字回复）。现改为 `||` 串联，并把分发器抽到 `src/features/interaction-dispatch.ts` 补了 4 个回归用例。
+
 ## [0.6.0] - 2026-10-28
 
 > 本版起为 [RACErace/dsh-qqbot](https://github.com/RACErace/dsh-qqbot) fork（上游 [tencent-connect/dsh-qqbot](https://github.com/tencent-connect/dsh-qqbot)），新增 QQ 通知推送。

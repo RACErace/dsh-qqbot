@@ -17,7 +17,7 @@ import type { ToolsRegistryLike } from '../transport/tool-presenter.ts';
 import type { QQBotSender } from '../transport/outbound-buffer.ts';
 import { QuestionChannel } from '../features/question-channel.ts';
 import { ApprovalChannel, type ApprovalChannelContext } from '../features/approval-channel.ts';
-import { decodeButtonData } from '../features/button-utils.ts';
+import { dispatchInteraction } from '../features/interaction-dispatch.ts';
 import { buildUserAgent } from '../shared/index.ts';
 import type { ImQQBotConfig } from '../config.ts';
 import type { ChatScope, Logger } from '../types.ts';
@@ -31,42 +31,7 @@ import {
   NotificationChannel,
   NotificationTargetStore,
 } from '../notification/index.ts';
-import type {
-  NotificationContextLike,
-  NotificationInteractionLike,
-  NotificationRootsLike,
-} from '../notification/index.ts';
-
-/**
- * interaction 统一分发器：按 button_data 的顶层 `t` 判别字段，路由到对应
- * channel（question / approval）。
- *
- * QQ 会话的问答/审批优先由上游通道处理；非 QQ 会话（通知推送的卡片）由
- * NotificationChannel 兜底。QQ 只有一个 interaction 入口，集中路由
- * 避免多通道各自 try 导致误判。
- */
-function dispatchInteraction(event: InteractionEvent, manager: SessionManager): boolean {
-  const raw = event.data?.resolved?.button_data;
-  if (!raw) return false;
-  const button = decodeButtonData(raw);
-  if (!button) return false;
-  const interaction = event as unknown as NotificationInteractionLike;
-  if (button.t === 'question') {
-    return (
-      manager.questionChannel?.handleInteraction(event) ??
-      manager.notificationChannel?.handleInteraction(interaction) ??
-      false
-    );
-  }
-  if (button.t === 'approval') {
-    return (
-      manager.approvalChannel?.handleInteraction(event) ??
-      manager.notificationChannel?.handleInteraction(interaction) ??
-      false
-    );
-  }
-  return false;
-}
+import type { NotificationContextLike, NotificationRootsLike } from '../notification/index.ts';
 
 export async function bootstrapGateway(
   ctx: Context,
