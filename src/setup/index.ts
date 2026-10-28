@@ -17,11 +17,12 @@ import type { Logger } from '../types.ts';
 import { BindingService } from './binding-service.ts';
 import { registerBindRoutes, type WebServerLike } from './bind-routes.ts';
 import { createBrowserPresenter, createTerminalPresenter, isDesktopHost } from './presenters.ts';
-import { persistCredentialsToProfile, type SetupCredentials } from './persist.ts';
-import { getProfileDir } from '../shared/index.ts';
+import type { SetupCredentials } from './persist.ts';
+import { clearCredentials, saveConfigPatch, saveCredentials } from './profile-writer.ts';
 
 export type { SetupCredentials } from './persist.ts';
 export { persistCredentialsToProfile } from './persist.ts';
+export { clearCredentials, saveConfigPatch, saveCredentials } from './profile-writer.ts';
 export { isDesktopHost } from './presenters.ts';
 
 /** 进程内活动绑定服务（HMR 接管用） */
@@ -90,10 +91,13 @@ export async function ensureCredentials(
     if (webServer === undefined || typeof webServer.register !== 'function') return;
     const disposeRoutes = registerBindRoutes(webServer, service, logger, {
       // 未绑定流程中的手动提交：终止扫码轮询，走同一持久化路径
-      onManualCredentials: (credentials) => {
+      // （优先宿主 configEditor：link/源码安装下也能定位 profile）
+      onManualCredentials: async (credentials) => {
         service.dispose();
-        return persistCredentials(credentials, logger);
+        return saveCredentials(ctx, credentials, logger);
       },
+      onUnbind: () => clearCredentials(ctx, logger),
+      onUpdateConfig: async (next) => (await saveConfigPatch(ctx, next, logger)).persisted,
       currentConfig: () => options.config,
     });
     // 回调作用域（服务卸载/替换、插件卸载）连带注销路由
@@ -119,7 +123,9 @@ export function registerBoundCredentialRoutes(ctx: Context, logger: Logger, appI
     if (webServer === undefined || typeof webServer.register !== 'function') return;
     const disposeRoutes = registerBindRoutes(webServer, null, logger, {
       boundAppId: () => appId,
-      onManualCredentials: (credentials) => persistCredentials(credentials, logger),
+      onManualCredentials: (credentials) => saveCredentials(ctx, credentials, logger),
+      onUnbind: () => clearCredentials(ctx, logger),
+      onUpdateConfig: async (next) => (await saveConfigPatch(ctx, next, logger)).persisted,
       currentConfig: () => config,
     });
     (scoped as unknown as { effect(fn: () => () => void, name?: string): void }).effect(() => {
@@ -128,10 +134,3 @@ export function registerBoundCredentialRoutes(ctx: Context, logger: Logger, appI
   });
 }
 
-/** 手动凭据持久化（失败时返回可展示的错误） */
-function persistCredentials(credentials: SetupCredentials, logger: Logger): { persisted: boolean; error?: string } {
-  const persisted = persistCredentialsToProfile(credentials, getProfileDir() ?? undefined, logger);
-  return persisted
-    ? { persisted: true }
-    : { persisted: false, error: '无法定位 profile 目录或写入失败，请改用环境变量配置' };
-}

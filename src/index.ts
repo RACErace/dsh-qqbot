@@ -9,8 +9,8 @@ import type { Context } from '@deepseek-ai/cordis';
 import { ConfigSchema, type ImQQBotConfig } from './config.ts';
 import { bootstrapGateway } from './gateway/index.ts';
 import type { DshAgentRegistry } from './session/index.ts';
-import { getProfileDir, resolveEnv } from './shared/index.ts';
-import { ensureCredentials, persistCredentialsToProfile, registerBoundCredentialRoutes } from './setup/index.ts';
+import { resolveEnv } from './shared/index.ts';
+import { ensureCredentials, registerBoundCredentialRoutes, saveCredentials } from './setup/index.ts';
 import type { Logger } from './types.ts';
 
 // ── Cordis 插件元数据 ──
@@ -37,24 +37,27 @@ export async function apply(ctx: Context, config: ImQQBotConfig): Promise<void> 
     // Web 的 URL 延迟输出。绑定编排（路由/呈现/生命周期）在
     // ensureCredentials 的同步阶段即完成，凭据就绪后由异步链接管。
     void ensureCredentials(ctx, { logger, config: { ...config } })
-      .then((credentials): void => {
+      .then(async (credentials): Promise<void> => {
         if (!credentials) {
           // null 包括：扫码取消、手动提交（已另行持久化）、流程失败
           logger.info('扫码绑定流程结束（未获取凭据或已手动配置）');
           return;
         }
 
-        // 持久化到 profile：成功则等待热更新重载，失败则用凭据直接启动。
+        // 持久化到 profile：优先宿主 configEditor（link / 源码安装下也能写入），
+        // 成功则等待热更新重载，失败则用凭据直接启动。
         // 注意：不写入 process.env——resolveEnv 的 env 回退属于用户显式
         // export 的配置语义，运行时写入会与解绑清理不对齐（解绑后 HMR
         // 重载的新 fiber 仍从 env 读到旧凭据，状态停留 bound）
-        const persisted = persistCredentialsToProfile(credentials, getProfileDir() ?? undefined, logger);
-        if (persisted) {
-          // 写入 cordis.patch.yml 会触发 dsh 热更新，自动重新加载本插件。
+        const persisted = await saveCredentials(ctx, credentials, logger);
+        if (persisted.persisted) {
+          // 写入 profile patch / configEditor 会触发 dsh 热更新，自动重新加载本插件。
           logger.info('配置已保存，等待热更新重新加载...');
           return;
         }
-        logger.warn('凭据未能持久化，本次进程将使用环境变量凭据启动（重启后需重新绑定）');
+        logger.warn(
+          `凭据未能持久化（${persisted.error ?? '未知原因'}），本次进程将使用内存中的凭据启动（重启后需重新绑定）`,
+        );
         // 本 fiber 已激活（ctx 有效），直接以凭据启动网关
         void bootstrapGateway(ctx, agents, {
           ...config,

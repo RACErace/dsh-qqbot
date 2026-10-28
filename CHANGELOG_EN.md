@@ -6,6 +6,12 @@ This file records significant dsh-qqbot updates from a product perspective, focu
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.3] - 2026-10-28
+
+### Fixed
+
+- **Saving config under a `link:` (source) install failed with "cannot locate profile directory or write failed"**: upstream probes upward from the plugin path for a profile above a `node_modules` boundary, which never matches a plugin linked from a source checkout. The fork now prefers the host's built-in `configEditor` service (`entries()` locates the `im-qqbot` row, `edit()` merges the config and triggers Loader reconciliation, handling `!!js` tags and atomic writes), falling back to the original direct file write only on older hosts without that service. The settings-panel save, manual credential submit, post-QR credential persistence and unbind all go through this path. Added `src/setup/profile-writer.ts` with 9 tests.
+
 ## [0.6.2] - 2026-10-28
 
 ### Fixed

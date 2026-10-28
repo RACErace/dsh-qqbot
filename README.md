@@ -169,6 +169,8 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 | `notifications.onApproval.commandChars` | number | `500` | 被 gate 命令回显截断字符数，0 = 不截断 |
 | `notifications.cooldownMs` | number | `0` | 同类完成推送最小间隔(ms)，0 = 不限制 |
 
+> **保存配置 / 凭据**：link（源码）安装时插件不在 profile 的 `node_modules` 下，旧逻辑定位不到 profile 目录。本 fork 优先通过宿主 `configEditor` 服务落盘（处理 `!!js` 标签与 Loader 热重载）；旧宿主没有该服务时才退回文件直写。
+
 ## 内置命令
 
 | 命令 | 说明 |

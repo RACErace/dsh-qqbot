@@ -69,13 +69,14 @@ export interface BindRoutesOptions {
   /**
    * 手动凭据提交处理（默认：persist 到 profile patch）。
    * 待绑定流程会注入「先终止扫码轮询」的包装。
+   * 允许返回 Promise（宿主 configEditor 的落盘是异步的）。
    */
-  onManualCredentials?: (credentials: SetupCredentials) => ManualSubmitResult;
+  onManualCredentials?: (credentials: SetupCredentials) => ManualSubmitResult | Promise<ManualSubmitResult>;
   /**
    * 解绑处理（默认：移除 profile patch 中的凭据字段）。
    * 未绑定态调用返回 409，不触达本回调。
    */
-  onUnbind?: () => UnbindResult;
+  onUnbind?: () => UnbindResult | Promise<UnbindResult>;
   /**
    * 当前生效配置（apply 时 loader 合并后的值，含默认值填充），
    * 用于 GET 回显（appSecret 剔除后返回）。
@@ -83,8 +84,9 @@ export interface BindRoutesOptions {
   currentConfig?: () => Record<string, unknown>;
   /**
    * 配置写入处理（默认：最小合并写入 profile patch）。
+   * 允许返回 Promise（宿主 configEditor 的落盘是异步的）。
    */
-  onUpdateConfig?: (config: Record<string, unknown>) => boolean;
+  onUpdateConfig?: (config: Record<string, unknown>) => boolean | Promise<boolean>;
 }
 
 /** 可经 UI 编辑的配置键（白名单：只收用户必要的字段，其余走 patch/env） */
@@ -270,7 +272,7 @@ function parseCredentials(body: unknown): SetupCredentials | null {
 async function handleManual(
   req: IncomingMessage,
   res: ServerResponse,
-  submit: (credentials: SetupCredentials) => ManualSubmitResult,
+  submit: (credentials: SetupCredentials) => ManualSubmitResult | Promise<ManualSubmitResult>,
 ): Promise<void> {
   if (!trusted(req)) {
     sendJson(res, 403, { error: 'forbidden' });
@@ -292,7 +294,7 @@ async function handleManual(
     sendJson(res, 400, { ok: false, error: 'appId 与 appSecret 不能为空' });
     return;
   }
-  const result = submit(credentials);
+  const result = await submit(credentials);
   if (!result.persisted) {
     sendJson(res, 500, { ok: false, error: result.error ?? '保存失败' });
     return;
@@ -302,7 +304,7 @@ async function handleManual(
 }
 
 /** 解绑：仅已绑定态可执行；移除 profile patch 中的凭据并触发 HMR 重载 */
-function handleUnbind(req: IncomingMessage, res: ServerResponse, options: BindRoutesOptions): void {
+async function handleUnbind(req: IncomingMessage, res: ServerResponse, options: BindRoutesOptions): Promise<void> {
   if (!trusted(req)) {
     sendJson(res, 403, { error: 'forbidden' });
     return;
@@ -330,7 +332,7 @@ function handleUnbind(req: IncomingMessage, res: ServerResponse, options: BindRo
           ? { persisted: true }
           : { persisted: false, error: '无法定位 profile 目录或写入失败，请手动编辑 cordis.patch.yml' };
       })()
-    : options.onUnbind();
+    : await options.onUnbind();
   if (!result.persisted) {
     sendJson(res, 500, { ok: false, error: result.error ?? '解绑失败' });
     return;
@@ -403,7 +405,7 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, options: 
 
   const persisted = options.onUpdateConfig === undefined
     ? updateProfileConfig(validated, getProfileDir() ?? undefined, undefined)
-    : options.onUpdateConfig(validated);
+    : await options.onUpdateConfig(validated);
   if (!persisted) {
     sendJson(res, 500, { ok: false, error: '无法定位 profile 目录或写入失败' });
     return;

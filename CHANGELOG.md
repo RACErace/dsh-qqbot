@@ -6,6 +6,12 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.6.3] - 2026-10-28
+
+### 问题修复
+
+- **link（源码）安装下保存配置报「无法定位 profile 目录或写入失败」**：上游从插件路径向上探测 node_modules 之上的 profile，插件以 `link:` 安装时插件根不在 profile 的 node_modules 下，探测必然失败。现优先使用宿主内置的 `configEditor` 服务落盘（`entries()` 找 `im-qqbot` 行、`edit()` 合并配置并触发 Loader 热重载，由其处理 `!!js` 标签与原子写），旧宿主没有该服务时才退回原来的文件直写。配置面板「保存」、手动提交凭据、扫码绑定后自动保存凭据、解绑都走这条路径。新增 `src/setup/profile-writer.ts` 与 9 个测试。
+
 ## [0.6.2] - 2026-10-28
 
 ### 问题修复

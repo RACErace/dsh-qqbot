@@ -169,6 +169,8 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 | `notifications.onApproval.commandChars` | number | `500` | Command echo truncation, 0 = none |
 | `notifications.cooldownMs` | number | `0` | Minimum interval between completion pushes (ms), 0 = unlimited |
 
+> **Saving config / credentials**: under a `link:` (source) install the plugin is not below the profile's `node_modules`, so the old probe cannot locate the profile directory. This fork saves through the host `configEditor` service when available (handles `!!js` tags and Loader reconciliation), falling back to the direct file write only on older hosts.
+
 ## Built-in Commands
 
 | Command | Description |
